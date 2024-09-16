@@ -84,7 +84,7 @@ The PostgreSQL table `machine.crypto_prices` has the following schema:
 
 ## Notes
 
-- Ensure all required JAR files are in the correct location for the Flink job.
+- Typically ensure the required JAR files are in the correct location for the Flink job.
 - The Flink job is configured to start consuming from the latest offset in Kafka topics.
 - The event_time_ms filter (> 1000000000000) is used to exclude potentially invalid timestamps.
 - The PostgreSQL connection details (URL, username, password) should be updated as per your setup.
