@@ -4,8 +4,8 @@ import json
 import time
 
 # Binance API keys
-api_key = 'Xv8AxoJ7dLpYJc2gvGW91QxRzte6MVrunhxidR9DhIPI7LVYbdte6CfJ7qJcMZZT'
-api_secret = 'areFQCJNAgHUYBpX2yUO3u2XJhOW83Nxdcmy4q82PSMbus06OcWP9BcMLzeBudzO'
+api_key = 'Xv8AxoJ7dLpYJc2gvGW91---FAKEKEY'
+api_secret = 'areFQCJNAgHUYBpX2yUO3u2XJhOW----TYPICALLY USE GETPASS4'
 
 # Initialize Binance client
 client = Client(api_key, api_secret)
@@ -36,5 +36,5 @@ while True:
         print(f"Sending {data} to topic {topic}")
         producer.send(topic, value=data)
     
-    # Sleep for 2 seconds before the next fetch
+    # Sleep for 0.5 seconds before the next fetch
     time.sleep(0.5)
