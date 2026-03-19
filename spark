@@ -1,0 +1,144 @@
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("db2_jdbc_split_load").getOrCreate()
+
+# -----------------------------------------------------------------------------
+# Config
+# -----------------------------------------------------------------------------
+jdbc_host = "YOUR_DB2_HOST"
+jdbc_port = "50000"
+jdbc_database = "YOUR_DBNAME"
+jdbc_user = "YOUR_USERNAME"
+jdbc_password = "YOUR_PASSWORD"
+jdbc_driver = "com.ibm.db2.jcc.DB2Driver"
+
+schema_name = "YOUR_SCHEMA"
+table_name = "YOUR_TABLE"
+date_col = "txn_date"   # must be a DATE / TIMESTAMP / numeric column for partitioning
+
+jdbc_url = f"jdbc:db2://{jdbc_host}:{jdbc_port}/{jdbc_database}"
+
+common_options = {
+    "url": jdbc_url,
+    "driver": jdbc_driver,
+    "user": jdbc_user,
+    "password": jdbc_password,
+    "fetchsize": "5000",
+    "queryTimeout": "600",
+}
+
+# -----------------------------------------------------------------------------
+# 1) Small historical read: 2015-01-01 to 2025-01-01
+#    No partitioning needed for ~1k rows
+# -----------------------------------------------------------------------------
+hist_query = f"""
+(
+  select *
+  from {schema_name}.{table_name}
+  where {date_col} >= date('2015-01-01')
+    and {date_col} <  date('2025-01-01')
+) hist_subq
+"""
+
+hist_df = (
+    spark.read.format("jdbc")
+    .options(**common_options)
+    .option("dbtable", hist_query)
+    .load()
+)
+
+# -----------------------------------------------------------------------------
+# 2) Large recent read: 2025-01-01 to 2026-03-01
+#    Partitioned for parallel JDBC reads
+# -----------------------------------------------------------------------------
+recent_query = f"""
+(
+  select *
+  from {schema_name}.{table_name}
+  where {date_col} >= date('2025-01-01')
+    and {date_col} <  date('2026-03-01')
+) recent_subq
+"""
+
+recent_df = (
+    spark.read.format("jdbc")
+    .options(**common_options)
+    .option("dbtable", recent_query)
+    .option("partitionColumn", date_col)
+    .option("lowerBound", "2025-01-01")
+    .option("upperBound", "2026-03-01")
+    .option("numPartitions", "8")   # start with 4 or 8 for Db2
+    .load()
+)
+
+# -----------------------------------------------------------------------------
+# 3) Combine both
+# -----------------------------------------------------------------------------
+final_df = hist_df.unionByName(recent_df)
+
+# Optional sanity checks
+print("Historical rows:", hist_df.count())
+print("Recent rows:", recent_df.count())
+print("Total rows:", final_df.count())
+
+# -----------------------------------------------------------------------------
+# 4) Write result
+#    Example: Parquet to S3
+# -----------------------------------------------------------------------------
+output_path = "s3://your-bucket/path/db2_extract/"
+
+(
+    final_df.write
+    .mode("overwrite")
+    .parquet(output_path)
+)
+
+print(f"Done. Data written to: {output_path}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---HELPER FUNC.
+def read_db2_range(start_date: str, end_date: str, partitioned: bool = False, num_partitions: int = 8):
+    query = f"""
+    (
+      select *
+      from {schema_name}.{table_name}
+      where {date_col} >= date('{start_date}')
+        and {date_col} <  date('{end_date}')
+    ) t
+    """
+
+    reader = (
+        spark.read.format("jdbc")
+        .options(**common_options)
+        .option("dbtable", query)
+    )
+
+    if partitioned:
+        reader = (
+            reader
+            .option("partitionColumn", date_col)
+            .option("lowerBound", start_date)
+            .option("upperBound", end_date)
+            .option("numPartitions", str(num_partitions))
+        )
+
+    return reader.load()
+
+
+hist_df = read_db2_range("2015-01-01", "2025-01-01", partitioned=False)
+recent_df = read_db2_range("2025-01-01", "2026-03-01", partitioned=True, num_partitions=8)
+
+final_df = hist_df.unionByName(recent_df)
